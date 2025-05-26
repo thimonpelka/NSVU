@@ -1,0 +1,5 @@
+workfiles/*
+*.csv
+*pcap
+*.tgz
+
