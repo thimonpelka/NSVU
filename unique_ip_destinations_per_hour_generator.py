@@ -7,7 +7,7 @@ import matplotlib.dates as mdate
 dataset = pd.read_csv('workfiles/global_last10years.csv')
 
 #create a list with packets_per_day
-ts_packets = dataset['# Unique Source IPs'].tolist()
+ts_packets = dataset['# Unique Destination IPs'].tolist()
 
 ts_packets = [float(x) if str(x).strip() != '' else 0.0 for x in ts_packets]  # Convert to integers if necessary
 
@@ -27,11 +27,11 @@ fig.autofmt_xdate()
 
 # title and x,y-labels
 plt.xlabel('days of observed time span')
-plt.ylabel('#uIPs/hour [millions]')
-plt.title('Number of unique IP sources per hour (daily average)')
+plt.ylabel('#uIPd/hour [millions]')
+plt.title('Number of unique IP destinations per hour (daily average)')
 
 # plot stem graphic
 plt.stem(timestamps, [(x / (10**6)) for x in ts_packets], linefmt='C0-', markerfmt=" ", basefmt=" ")
 plt.grid()
-plt.savefig("output/team29_Ex3_uIPs-hour.png")
+plt.savefig("output/team29_Ex3_uIPd-hour.png")
 plt.show()
