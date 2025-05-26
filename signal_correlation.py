@@ -15,6 +15,12 @@ def interpolate_nans(arr):
     arr[nans] = np.interp(x[nans], x[~nans], arr[~nans])
     return arr
 
+def safe_float(x):
+    try:
+        return float(x)
+    except ValueError:
+        return np.nan
+
 
 # loading data from CSV file
 dataset = pd.read_csv("workfiles/global_last10years.csv")
@@ -26,7 +32,8 @@ ts_destination_ips = [
     float(x) if str(x).strip() != "" else 0.0 for x in ts_destination_ips
 ]  # Convert to integers if necessary
 
-ts_bytes = dataset[" # Bytes"].tolist()
+ts_bytes = dataset[" # Bytes"].apply(safe_float).values
+ts_bytes = interpolate_nans(ts_bytes).tolist()
 ts_bytes = [float(x) if str(x).strip() != "" else 0.0 for x in ts_bytes]
 
 ts_source_ips = dataset["# Unique Source IPs"]
@@ -35,10 +42,17 @@ ts_source_ips = [
     float(x) if str(x).strip() != "" else 0.0 for x in ts_source_ips
 ]  # Convert to integers if necessary
 
-ts_packets = dataset["# Packets"].tolist()
+ts_packets = dataset["# Packets"]
+ts_packets = interpolate_nans(ts_packets).tolist()
 ts_packets = [float(x) if str(x).strip() != "" else 0.0 for x in ts_packets]
 
-# Clean and convert ts_bytes
+
+print(ts_destination_ips[:5])  # Debugging: print first 5 values
+print(ts_bytes[:5])  # Debugging: print first 5 values
+print(ts_source_ips[:5])  # Debugging: print first 5 values
+print(ts_packets[:5])  # Debugging: print first 5 values
+
+print(dataset.head())  # Debugging: print the first few rows of the dataset
 
 # Compute Pearson correlations
 corr_a, _ = pearsonr(ts_packets, ts_destination_ips)
