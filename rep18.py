@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 
 # CSV einlesen
 df = pd.read_csv("team29_monthly.csv", header=0)
@@ -18,10 +19,10 @@ df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s")
 
 # Statistiken berechnen
 stats = {
-    "Total Sum": df[["packets", "bytes", "uIPs", "uIPd"]].sum(),
-    "Mean": df[["packets", "bytes", "uIPs", "uIPd"]].mean(),
-    "Median": df[["packets", "bytes", "uIPs", "uIPd"]].median(),
-    "Std. Deviation": df[["packets", "bytes", "uIPs", "uIPd"]].std()
+    "total sum": df[["packets", "bytes", "uIPs", "uIPd"]].sum(),
+    "mean": df[["packets", "bytes", "uIPs", "uIPd"]].mean(),
+    "median": df[["packets", "bytes", "uIPs", "uIPd"]].median(),
+    "standard deviation": df[["packets", "bytes", "uIPs", "uIPd"]].std()
 }
 
 # In Tabelle (DataFrame) umwandeln und Zeilen sortieren
@@ -31,3 +32,4 @@ table_a.index = ["#pkts/hour", "#bytes/hour", "#uIPs/hour", "#uIPd/hour"]
 # Ausgabe
 print("Table A – Basic Statistics:")
 print(table_a.round(2))
+
