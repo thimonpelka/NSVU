@@ -1,4 +1,7 @@
 import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 df = pd.read_csv("Ex2flows_team29.csv", header=0)
 
@@ -22,3 +25,7 @@ for i, (flag, count) in enumerate(top_3.items()):
     label = chr(ord('a') + i * 2)  # 'a', 'c', 'e'
     print(f"rep-23{label}: {flag}")
     print(f"rep-23{chr(ord(label)+1)}: {percent:.2f}%")
+
+sns.histplot(tcp_flags_col)
+plt.tight_layout()
+plt.show()
