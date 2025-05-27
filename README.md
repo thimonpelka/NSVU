@@ -42,7 +42,8 @@ PORT    STATE SERVICE  VERSION
 443/tcp open  ftp      IIS ftpd 10.0
 Service Info: OS: Windows; CPE: cpe:/o:microsoft:windows
 
-Nmap done: 1 IP address (1 host up) scanned in 0.66 seconds```
+Nmap done: 1 IP address (1 host up) scanned in 0.66 seconds
+```
 
 rep-8:
 ```
