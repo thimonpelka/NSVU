@@ -5,6 +5,33 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from scapy.all import ICMP, IP, TCP, UDP, rdpcap
 
+def scatter_combined(df, plot_prefix):
+    fig, axs = plt.subplots(1, 3, figsize=(18, 6))  # 1 row, 3 columns
+
+    # Plot 1: srcIP vs dstIP
+    axs[0].scatter(df["srcIP"], df["dstIP"], alpha=0.6)
+    axs[0].set_xlabel("srcIP")
+    axs[0].set_ylabel("dstIP")
+    axs[0].tick_params(axis='x', rotation=45)
+    axs[0].set_title("srcIP vs dstIP")
+
+    # Plot 2: srcIP vs dstPort
+    axs[1].scatter(df["srcIP"], df["dstPort"], alpha=0.6)
+    axs[1].set_xlabel("srcIP")
+    axs[1].set_ylabel("dstPort")
+    axs[1].tick_params(axis='x', rotation=45)
+    axs[1].set_title("srcIP vs dstPort")
+
+    # Plot 3: dstIP vs dstPort
+    axs[2].scatter(df["dstIP"], df["dstPort"], alpha=0.6)
+    axs[2].set_xlabel("dstIP")
+    axs[2].set_ylabel("dstPort")
+    axs[2].tick_params(axis='x', rotation=45)
+    axs[2].set_title("dstIP vs dstPort")
+
+    plt.tight_layout()
+    plt.savefig(f"output/team29_Ex4_{plot_prefix}_scatter.png")
+    plt.close()
 
 def analyze_pcap(filename, plot_prefix):
     packets = rdpcap(filename)
@@ -29,19 +56,7 @@ def analyze_pcap(filename, plot_prefix):
     df = pd.DataFrame(data, columns=["srcIP", "dstIP", "dstPort", "proto"])
 
     # Scatter plots
-    def scatter(x, y, fname):
-        plt.figure(figsize=(10, 6))
-        plt.scatter(df[x], df[y], alpha=0.6)
-        plt.xlabel(x)
-        plt.ylabel(y)
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        plt.savefig(fname)
-        plt.close()
-
-    scatter("srcIP", "dstIP", f"workfiles/{plot_prefix}_scatter1_srcIP_dstIP.png")
-    scatter("srcIP", "dstPort", f"workfiles/{plot_prefix}_scatter2_srcIP_dstPort.png")
-    scatter("dstIP", "dstPort", f"workfiles/{plot_prefix}_scatter3_dstIP_dstPort.png")
+    scatter_combined(df, plot_prefix)
 
     # Analysis
     src_counts = df["srcIP"].value_counts()
@@ -98,15 +113,15 @@ if __name__ == "__main__":
 
     files = [
         {
-            "prefix": "rep-24",
+            "prefix": "A",
             "filename": "workfiles/team29_A.pcap",
         },
         {
-            "prefix": "rep-25",
+            "prefix": "B",
             "filename": "workfiles/team29_B.pcap",
         },
         {
-            "prefix": "rep-26",
+            "prefix": "C",
             "filename": "workfiles/team29_C.pcap",
         },
     ]
@@ -116,11 +131,11 @@ if __name__ == "__main__":
 
         result = analyze_pcap(file["filename"], plot_prefix)
 
-        print(f"{plot_prefix}a: {result['type']}")
-        print(f"{plot_prefix}b: {result['attacker']}")
-        print(f"{plot_prefix}c: {result['target']}")
-        print(f"{plot_prefix}d: {result['port']}")
-        print(f"{plot_prefix}e: {result['num_targets_or_ports']}")
-        print(f"{plot_prefix}f: {result['found_vulnerable']}")
-        print(f"{plot_prefix}g: {result['num_vulnerable']}")
-        print(f"{plot_prefix}h: {result['ddos_ack']}")
+        print(f"{plot_prefix}-a: {result['type']}")
+        print(f"{plot_prefix}-b: {result['attacker']}")
+        print(f"{plot_prefix}-c: {result['target']}")
+        print(f"{plot_prefix}-d: {result['port']}")
+        print(f"{plot_prefix}-e: {result['num_targets_or_ports']}")
+        print(f"{plot_prefix}-f: {result['found_vulnerable']}")
+        print(f"{plot_prefix}-g: {result['num_vulnerable']}")
+        print(f"{plot_prefix}-h: {result['ddos_ack']}\n")
