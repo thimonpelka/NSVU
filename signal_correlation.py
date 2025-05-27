@@ -63,3 +63,4 @@ corr_c, _ = pearsonr(ts_source_ips, ts_destination_ips)
 print(f"rep-15a: {corr_a:.2f}")
 print(f"rep-15b: {corr_b:.2f}")
 print(f"rep-15c: {corr_c:.2f}")
+
