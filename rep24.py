@@ -39,9 +39,9 @@ def analyze_pcap(filename, plot_prefix):
         plt.savefig(fname)
         plt.close()
 
-    scatter("srcIP", "dstIP", f"{plot_prefix}_scatter1_srcIP_dstIP.png")
-    scatter("srcIP", "dstPort", f"{plot_prefix}_scatter2_srcIP_dstPort.png")
-    scatter("dstIP", "dstPort", f"{plot_prefix}_scatter3_dstIP_dstPort.png")
+    scatter("srcIP", "dstIP", f"workfiles/{plot_prefix}_scatter1_srcIP_dstIP.png")
+    scatter("srcIP", "dstPort", f"workfiles/{plot_prefix}_scatter2_srcIP_dstPort.png")
+    scatter("dstIP", "dstPort", f"workfiles/{plot_prefix}_scatter3_dstIP_dstPort.png")
 
     # Analysis
     src_counts = df["srcIP"].value_counts()
