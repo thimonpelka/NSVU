@@ -1,6 +1,6 @@
 import pandas as pd
 
-df = pd.read_csv("workfiles/Ex2flows_team_29.csv", header=0)
+df = pd.read_csv("Ex2flows_team29.csv", header=0)
 
 print(df.columns)
 
@@ -21,4 +21,4 @@ for i, (flag, count) in enumerate(top_3.items()):
     percent = (count / total) * 100
     label = chr(ord('a') + i * 2)  # 'a', 'c', 'e'
     print(f"rep-23{label}: {flag}")
-    print(f"rep-23{chr(ord(label)+1)}: {percent:.1f}%")
+    print(f"rep-23{chr(ord(label)+1)}: {percent:.2f}%")
