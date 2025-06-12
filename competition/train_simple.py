@@ -24,7 +24,7 @@ def load_and_preprocess_data(file_path):
     if "Attack_Type_enc" in df.columns:
         print(
             f"Attack types distribution:\n{
-              df['Attack_Type_enc'].value_counts()}"
+                df['Attack_Type_enc'].value_counts()}"
         )
 
     # === TIME-BASED FEATURES ===
@@ -112,16 +112,6 @@ def load_and_preprocess_data(file_path):
 
     df["port_diff"] = abs(df["sourceTransportPort"] - df["destinationTransportPort"])
 
-    # === PROTOCOL FEATURES ===
-    if "protocolIdentifier" in df.columns:
-        df["is_tcp"] = (df["protocolIdentifier"] == 6).astype(int)
-        df["is_udp"] = (df["protocolIdentifier"] == 17).astype(int)
-        df["is_icmp"] = (df["protocolIdentifier"] == 1).astype(int)
-    else:
-        df["is_tcp"] = 1  # assume TCP if not specified
-        df["is_udp"] = 0
-        df["is_icmp"] = 0
-
     # === TRAFFIC VOLUME FEATURES ===
     if "octetTotalCount" in df.columns and "packetTotalCount" in df.columns:
         df["bytes_per_packet"] = df["octetTotalCount"] / df["packetTotalCount"].replace(
@@ -147,29 +137,27 @@ def load_and_preprocess_data(file_path):
         df["log_duration"] = 0
 
     # === TCP FLAGS FEATURES (for C6 - slow connection attacks) ===
-    if "tcpControlBits" in df.columns:
-        df["tcp_syn"] = ((df["tcpControlBits"] & 0x02) != 0).astype(int)
-        df["tcp_ack"] = ((df["tcpControlBits"] & 0x10) != 0).astype(int)
-        df["tcp_fin"] = ((df["tcpControlBits"] & 0x01) != 0).astype(int)
-        df["tcp_rst"] = ((df["tcpControlBits"] & 0x04) != 0).astype(int)
-        df["tcp_psh"] = ((df["tcpControlBits"] & 0x08) != 0).astype(int)
-    else:
-        df["tcp_syn"] = 0
-        df["tcp_ack"] = 0
-        df["tcp_fin"] = 0
-        df["tcp_rst"] = 0
-        df["tcp_psh"] = 0
+    # Note: tcpControlBits not available, will use other indicators
+    # for slow connection detection like long duration + low packet rate
+    # Placeholder for when TCP flags become available
+    df["tcp_flags_available"] = 0
 
     # === PACKET SIZE FEATURES (for C5 - amplification attacks) ===
-    if "meanIpTotalLength" in df.columns:
-        df["mean_packet_size"] = df["meanIpTotalLength"]
-        if "standardDeviationIpTotalLength" in df.columns:
-            df["packet_size_variance"] = df["standardDeviationIpTotalLength"]
-        else:
-            df["packet_size_variance"] = 0
+    if "minimumIpTotalLength" in df.columns and "maximumIpTotalLength" in df.columns:
+        df["packet_size_range"] = (
+            df["maximumIpTotalLength"] - df["minimumIpTotalLength"]
+        )
+        df["min_packet_size"] = df["minimumIpTotalLength"]
+        df["max_packet_size"] = df["maximumIpTotalLength"]
+        # Estimate mean packet size
+        df["estimated_mean_packet_size"] = (
+            df["minimumIpTotalLength"] + df["maximumIpTotalLength"]
+        ) / 2
     else:
-        df["mean_packet_size"] = 0
-        df["packet_size_variance"] = 0
+        df["packet_size_range"] = 0
+        df["min_packet_size"] = 0
+        df["max_packet_size"] = 0
+        df["estimated_mean_packet_size"] = 0
 
     return df
 
@@ -211,9 +199,12 @@ def create_aggregated_features(df):
         dst_port_counts.to_frame(), left_on="destinationIPAddress", right_index=True
     )
 
-    # For C6 (Connection saturation): Long duration connections
+    # For C6 (Connection saturation): Long duration, low packet rate connections
     df["is_long_connection"] = (
         df["flow_duration"] > df["flow_duration"].quantile(0.95)
+    ).astype(int)
+    df["is_slow_connection"] = (
+        (df["flow_duration"] > 10) & (df["packets_per_second"] < 1)
     ).astype(int)
 
     return df
@@ -246,9 +237,6 @@ def select_features_for_training(df):
         "dst_is_db_port",
         "dst_is_file_port",
         "port_diff",
-        "is_tcp",
-        "is_udp",
-        "is_icmp",
         "flow_duration",
         "bytes_per_packet",
         "packets_per_second",
@@ -256,17 +244,15 @@ def select_features_for_training(df):
         "log_bytes",
         "log_packets",
         "log_duration",
-        "tcp_syn",
-        "tcp_ack",
-        "tcp_fin",
-        "tcp_rst",
-        "tcp_psh",
-        "mean_packet_size",
-        "packet_size_variance",
+        "packet_size_range",
+        "min_packet_size",
+        "max_packet_size",
+        "estimated_mean_packet_size",
         "src_connection_count",
         "unique_dst_per_src",
         "unique_ports_per_dst",
         "is_long_connection",
+        "is_slow_connection",
     ]
 
     # Only include features that exist in the dataframe
@@ -349,7 +335,7 @@ if __name__ == "__main__":
     print("Starting enhanced network threat detection...")
 
     # Load and preprocess data
-    df = load_and_preprocess_data("data/flowkeys_training_labeled_enc.csv")
+    df = load_and_preprocess_data("train.csv")
 
     # Create aggregated features
     df = create_aggregated_features(df)
