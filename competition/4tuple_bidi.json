@@ -13,7 +13,7 @@
         "minimumIpTotalLength",
         "maximumIpTotalLength",
         "minimumTTL",
-        "maximumTTL",
+        "maximumTTL"
 	],
 	"active_timeout": 1000,
 	"idle_timeout": 1000,
