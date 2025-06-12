@@ -13,4 +13,4 @@ chmod +x go-flows
 ./go-flows run features 4tuple_bidi.json export csv train.csv source libpcap "$PCAP_FILE"
 
 # 2. Run prediction script
-python train.py
+python train_simple.py
