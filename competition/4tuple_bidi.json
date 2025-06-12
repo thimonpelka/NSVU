@@ -14,7 +14,6 @@
         "maximumIpTotalLength",
         "minimumTTL",
         "maximumTTL",
-        "icmpTypeCodeIPv6"
 	],
 	"active_timeout": 1000,
 	"idle_timeout": 1000,
