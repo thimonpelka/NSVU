@@ -47,7 +47,7 @@ def load_and_preprocess_data(file_path):
     feature_columns = [
         "sourceTransportPort",
         "destinationTransportPort",
-        "Binary_Label",
+        # "Binary_Label",
         "src_ip_first_octet",
         "src_ip_second_octet",
         "dst_ip_first_octet",
