@@ -1,0 +1,18 @@
+# Core ML and data processing
+pandas>=1.5.0
+numpy>=1.21.0
+scikit-learn>=1.1.0
+scipy>=1.9.0
+
+# Advanced ML algorithms
+xgboost>=1.6.0
+
+# Network and packet processing
+scapy>=2.4.5
+
+# Utilities
+pathlib2>=2.3.0
+joblib>=1.1.0
+
+# Optional: For enhanced performance
+numba>=0.56.0
