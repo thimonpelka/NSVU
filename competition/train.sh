@@ -10,7 +10,7 @@ PCAP_FILE="$1"
 
 chmod +x go-flows
 # 1. Run go-flows to extract features from the PCAP file
-./go-flows run features 4tuple_bidi.json export csv test.csv source libpcap "$PCAP_FILE"
+./go-flows run features 4tuple_bidi.json export csv train.csv source libpcap "$PCAP_FILE"
 
 # 2. Run prediction script
-python predict.py
+python train.py

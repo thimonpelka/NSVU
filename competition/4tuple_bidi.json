@@ -1,10 +1,20 @@
 {
 	"features": [
-		"flowStartMilliseconds",
-		"sourceIPAddress",		
+        "flowStartMilliseconds",
+        "flowEndMilliseconds",
+        "sourceIPAddress",
         "destinationIPAddress",
-    	"sourceTransportPort",
-		"destinationTransportPort"
+        "sourceTransportPort",
+        "destinationTransportPort",
+        "protocolIdentifier",
+        "octetTotalCount",
+        "packetTotalCount",
+        "flowDurationMilliseconds",
+        "minimumIpTotalLength",
+        "maximumIpTotalLength",
+        "minimumTTL",
+        "maximumTTL",
+        "icmpTypeCodeIPv6"
 	],
 	"active_timeout": 1000,
 	"idle_timeout": 1000,
