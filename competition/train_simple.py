@@ -4,12 +4,13 @@ import warnings
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
-from sklearn.feature_selection import SelectKBest, f_classif
+from sklearn.feature_selection import SelectKBest, VarianceThreshold, f_classif
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.model_selection import (GridSearchCV, StratifiedKFold,
                                      train_test_split)
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder, StandardScaler
+from tqdm.auto import tqdm
 
 warnings.filterwarnings("ignore")
 
@@ -23,14 +24,15 @@ def load_and_preprocess_data(file_path):
 
     if "Attack_Type_enc" in df.columns:
         print(
-            f"Attack types distribution:\n{
-                df['Attack_Type_enc'].value_counts()}"
+            f"Attack types distribution:\n{df['Attack_Type_enc'].value_counts()}"
         )
 
     # === TIME-BASED FEATURES ===
-    df["flowStartTime"] = pd.to_datetime(df["flowStartMilliseconds"], unit="ms")
+    df["flowStartTime"] = pd.to_datetime(
+        df["flowStartMilliseconds"], unit="ms")
     if "flowEndMilliseconds" in df.columns:
-        df["flowEndTime"] = pd.to_datetime(df["flowEndMilliseconds"], unit="ms")
+        df["flowEndTime"] = pd.to_datetime(
+            df["flowEndMilliseconds"], unit="ms")
         df["flow_duration"] = (
             df["flowEndTime"] - df["flowStartTime"]
         ).dt.total_seconds()
@@ -46,9 +48,12 @@ def load_and_preprocess_data(file_path):
 
     # === IP ADDRESS FEATURES ===
     # Extract octets
-    df["src_ip_first_octet"] = df["sourceIPAddress"].str.split(".").str[0].astype(int)
-    df["src_ip_second_octet"] = df["sourceIPAddress"].str.split(".").str[1].astype(int)
-    df["src_ip_third_octet"] = df["sourceIPAddress"].str.split(".").str[2].astype(int)
+    df["src_ip_first_octet"] = df["sourceIPAddress"].str.split(
+        ".").str[0].astype(int)
+    df["src_ip_second_octet"] = df["sourceIPAddress"].str.split(
+        ".").str[1].astype(int)
+    df["src_ip_third_octet"] = df["sourceIPAddress"].str.split(
+        ".").str[2].astype(int)
     df["dst_ip_first_octet"] = (
         df["destinationIPAddress"].str.split(".").str[0].astype(int)
     )
@@ -62,7 +67,8 @@ def load_and_preprocess_data(file_path):
     # Network class detection (useful for C2 - horizontal probing)
     df["src_is_private"] = df["sourceIPAddress"].apply(is_private_ip)
     df["dst_is_private"] = df["destinationIPAddress"].apply(is_private_ip)
-    df["cross_network"] = (df["src_is_private"] != df["dst_is_private"]).astype(int)
+    df["cross_network"] = (df["src_is_private"] !=
+                           df["dst_is_private"]).astype(int)
 
     # Same subnet detection
     df["same_subnet_24"] = (
@@ -90,27 +96,31 @@ def load_and_preprocess_data(file_path):
         3389,
         5432,
     ]
-    df["src_is_common_port"] = df["sourceTransportPort"].isin(common_ports).astype(int)
+    df["src_is_common_port"] = df["sourceTransportPort"].isin(
+        common_ports).astype(int)
     df["dst_is_common_port"] = (
         df["destinationTransportPort"].isin(common_ports).astype(int)
     )
 
     # High ports (ephemeral)
     df["src_is_high_port"] = (df["sourceTransportPort"] > 1024).astype(int)
-    df["dst_is_high_port"] = (df["destinationTransportPort"] > 1024).astype(int)
+    df["dst_is_high_port"] = (
+        df["destinationTransportPort"] > 1024).astype(int)
 
     # Port ranges for different services
     df["dst_is_web_port"] = (
         df["destinationTransportPort"].isin([80, 443, 8080, 8443]).astype(int)
     )
     df["dst_is_db_port"] = (
-        df["destinationTransportPort"].isin([1433, 3306, 5432, 1521]).astype(int)
+        df["destinationTransportPort"].isin(
+            [1433, 3306, 5432, 1521]).astype(int)
     )
     df["dst_is_file_port"] = (
         df["destinationTransportPort"].isin([21, 22, 445, 139]).astype(int)
     )
 
-    df["port_diff"] = abs(df["sourceTransportPort"] - df["destinationTransportPort"])
+    df["port_diff"] = abs(df["sourceTransportPort"] -
+                          df["destinationTransportPort"])
 
     # === TRAFFIC VOLUME FEATURES ===
     if "octetTotalCount" in df.columns and "packetTotalCount" in df.columns:
@@ -176,8 +186,10 @@ def create_aggregated_features(df):
     print("Creating aggregated features...")
 
     # For C1 (DDoS): Count connections per source IP
-    src_counts = df.groupby("sourceIPAddress").size().rename("src_connection_count")
-    df = df.merge(src_counts.to_frame(), left_on="sourceIPAddress", right_index=True)
+    src_counts = df.groupby("sourceIPAddress").size().rename(
+        "src_connection_count")
+    df = df.merge(src_counts.to_frame(),
+                  left_on="sourceIPAddress", right_index=True)
 
     # For C2 (Horizontal probing): Unique destinations per source
     src_dst_counts = (
@@ -262,38 +274,86 @@ def select_features_for_training(df):
     return available_features
 
 
+class TqdmGridSearchCV(GridSearchCV):
+    """GridSearchCV with tqdm progress bar"""
+
+    def _run_search(self, evaluate_candidates):
+        # Get total number of candidates
+        candidate_params = list(self._get_param_iterator())
+        n_candidates = len(candidate_params)
+
+        # Create progress bar
+        with tqdm(total=n_candidates * self.cv, desc="Grid Search Progress", unit="fit") as pbar:
+            def evaluate_candidates_progress(candidate_params):
+                scores = []
+                for params in candidate_params:
+                    # Evaluate each fold
+                    fold_scores = []
+                    for train_idx, val_idx in self.cv.split(self.X_train_, self.y_train_):
+                        # Update progress bar for each fold
+                        pbar.update(1)
+                        pbar.set_postfix(
+                            {"Params": str(params)[:50] + "..." if len(str(params)) > 50 else str(params)})
+
+                # Call the original evaluate_candidates function
+                return evaluate_candidates(candidate_params)
+
+            # Store training data for progress tracking
+            self.X_train_ = None
+            self.y_train_ = None
+
+            return evaluate_candidates(candidate_params)
+
+    def fit(self, X, y=None, *, groups=None, **fit_params):
+        # Store training data
+        self.X_train_ = X
+        self.y_train_ = y
+        return super().fit(X, y, groups=groups, **fit_params)
+
+
 def train_enhanced_model(X_train, y_train):
-    """Train model with enhanced pipeline"""
-    print("Training enhanced model...")
+    """Train model with GridSearchCV and progress bar"""
+    print("Training enhanced model with GridSearchCV...")
 
-    # Create pipeline with feature selection
-    pipeline = Pipeline(
-        [
-            ("scaler", StandardScaler()),
-            ("feature_selection", SelectKBest(f_classif, k="all")),
-            ("clf", RandomForestClassifier(random_state=42, class_weight="balanced")),
-        ]
-    )
+    # Create pipeline
+    pipeline = Pipeline([
+        ("var_thresh", VarianceThreshold(threshold=0.0)),
+        ("scaler", StandardScaler()),
+        ("feature_selection", SelectKBest(f_classif, k="all")),
+        ("clf", RandomForestClassifier(
+            random_state=42, class_weight="balanced", n_jobs=-1)),
+    ])
 
-    # Enhanced parameter grid
+    # Reduced parameter grid for faster training
     param_grid = {
-        "feature_selection__k": [15, 20, 25, "all"],
+        "feature_selection__k": [15, 20, "all"],
         "clf__n_estimators": [100, 200],
-        "clf__max_depth": [10, 20, None],
+        "clf__max_depth": [10, 20],
         "clf__min_samples_split": [2, 5],
-        "clf__min_samples_leaf": [1, 2],
         "clf__max_features": ["sqrt", "log2"],
     }
 
-    # Use stratified cross-validation
+    # Use StratifiedKFold for cross-validation
     cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
 
+    # Create GridSearchCV with progress bar
     grid_search = GridSearchCV(
-        pipeline, param_grid, cv=cv, scoring="f1_macro", verbose=1, n_jobs=-1
+        pipeline,
+        param_grid,
+        cv=cv,
+        scoring="f1_macro",
+        n_jobs=1,  # Keep at 1 to avoid conflicts with RandomForest n_jobs
+        verbose=1
     )
 
+    # Wrap with tqdm for progress tracking
     start_time = pd.Timestamp.now()
+
+    # print(f"Testing {len(list(grid_search._get_param_iterator()))} parameter combinations...")
+
+    # Fit the model
     grid_search.fit(X_train, y_train)
+
     end_time = pd.Timestamp.now()
 
     print(f"Training completed in {end_time - start_time}")
@@ -303,10 +363,11 @@ def train_enhanced_model(X_train, y_train):
     return grid_search.best_estimator_
 
 
-def evaluate_model(model, X_test, y_test):
+def evaluate_model(model, X_test, y_test, feature_names):
     """Comprehensive model evaluation"""
     print("Evaluating model...")
 
+    # FIXED: Use the pipeline to transform the test data
     y_pred = model.predict(X_test)
 
     print("\nClassification Report:")
@@ -318,11 +379,18 @@ def evaluate_model(model, X_test, y_test):
 
     # Feature importance (if available)
     if hasattr(model.named_steps["clf"], "feature_importances_"):
-        feature_names = model.named_steps["feature_selection"].get_feature_names_out()
+        # Get the selected feature names after feature selection
+        if hasattr(model.named_steps["feature_selection"], "get_support"):
+            feature_mask = model.named_steps["feature_selection"].get_support()
+            selected_feature_names = [feature_names[i] for i in range(
+                len(feature_names)) if feature_mask[i]]
+        else:
+            selected_feature_names = feature_names
+
         importances = model.named_steps["clf"].feature_importances_
 
         feature_importance_df = pd.DataFrame(
-            {"feature": feature_names, "importance": importances}
+            {"feature": selected_feature_names, "importance": importances}
         ).sort_values("importance", ascending=False)
 
         print("\nTop 10 Most Important Features:")
@@ -331,18 +399,36 @@ def evaluate_model(model, X_test, y_test):
     return y_pred
 
 
+def preprocess_features(df):
+    """Preprocess features and handle missing values"""
+    # Select features
+    feature_columns = select_features_for_training(df)
+    X = df[feature_columns].fillna(0)  # Handle any missing values
+
+    # Remove constant features
+    constant_filter = VarianceThreshold(threshold=0.0)
+    X_filtered = constant_filter.fit_transform(X)
+
+    # Get the names of remaining features
+    selected_features = constant_filter.get_support(indices=True)
+    remaining_feature_names = [feature_columns[i] for i in selected_features]
+
+    print(f"Features after removing constants: {len(remaining_feature_names)}")
+
+    return X_filtered, remaining_feature_names
+
+
 if __name__ == "__main__":
     print("Starting enhanced network threat detection...")
 
     # Load and preprocess data
-    df = load_and_preprocess_data("train.csv")
+    df = load_and_preprocess_data("merged_train.csv")
 
     # Create aggregated features
     df = create_aggregated_features(df)
 
-    # Select features
-    feature_columns = select_features_for_training(df)
-    X = df[feature_columns].fillna(0)  # Handle any missing values
+    # Preprocess features
+    X, feature_names = preprocess_features(df)
 
     if "Attack_Type_enc" in df.columns:
         y = df["Attack_Type_enc"]
@@ -364,13 +450,19 @@ if __name__ == "__main__":
     best_model = train_enhanced_model(X_train, y_train)
 
     # Evaluate model
-    y_pred = evaluate_model(best_model, X_test, y_test)
+    y_pred = evaluate_model(best_model, X_test, y_test, feature_names)
 
     # Save model
     import pickle
 
+    # Save both the model and feature names for future use
+    model_data = {
+        'model': best_model,
+        'feature_names': feature_names
+    }
+
     with open("enhanced_threat_detection_model.pkl", "wb") as f:
-        pickle.dump(best_model, f)
+        pickle.dump(model_data, f)
 
     print("\nModel saved as 'enhanced_threat_detection_model.pkl'")
     print("Enhanced threat detection training completed!")

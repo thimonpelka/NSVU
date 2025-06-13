@@ -13,4 +13,5 @@ chmod +x go-flows
 ./go-flows run features 4tuple_bidi.json export csv test.csv source libpcap "$PCAP_FILE"
 
 # 2. Run prediction script
-python predict.py
+# python predict.py
+python predict_enhanced.py -m enhanced_threat_detection_model -i test.csv -o output.csv
