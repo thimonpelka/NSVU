@@ -3,9 +3,13 @@ import warnings
 
 import numpy as np
 import pandas as pd
+from imblearn.over_sampling import SMOTE
+from imblearn.pipeline import Pipeline as ImbPipeline
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.feature_selection import SelectKBest, VarianceThreshold, f_classif
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import (classification_report, confusion_matrix,
+                             precision_recall_curve)
 from sklearn.model_selection import (GridSearchCV, StratifiedKFold,
                                      train_test_split)
 from sklearn.pipeline import Pipeline
@@ -23,9 +27,8 @@ def load_and_preprocess_data(file_path):
     print(f"Columns: {df.columns.tolist()}")
 
     if "Attack_Type_enc" in df.columns:
-        print(
-            f"Attack types distribution:\n{df['Attack_Type_enc'].value_counts()}"
-        )
+        print(f"Attack types distribution:\n{
+              df['Attack_Type_enc'].value_counts()}")
 
     # === TIME-BASED FEATURES ===
     df["flowStartTime"] = pd.to_datetime(
@@ -274,82 +277,110 @@ def select_features_for_training(df):
     return available_features
 
 
-class TqdmGridSearchCV(GridSearchCV):
-    """GridSearchCV with tqdm progress bar"""
+def create_custom_class_weights(y):
+    """Create custom class weights that heavily penalize false negatives"""
+    from sklearn.utils.class_weight import compute_class_weight
 
-    def _run_search(self, evaluate_candidates):
-        # Get total number of candidates
-        candidate_params = list(self._get_param_iterator())
-        n_candidates = len(candidate_params)
+    # Get unique classes
+    classes = np.unique(y)
 
-        # Create progress bar
-        with tqdm(total=n_candidates * self.cv, desc="Grid Search Progress", unit="fit") as pbar:
-            def evaluate_candidates_progress(candidate_params):
-                scores = []
-                for params in candidate_params:
-                    # Evaluate each fold
-                    fold_scores = []
-                    for train_idx, val_idx in self.cv.split(self.X_train_, self.y_train_):
-                        # Update progress bar for each fold
-                        pbar.update(1)
-                        pbar.set_postfix(
-                            {"Params": str(params)[:50] + "..." if len(str(params)) > 50 else str(params)})
+    # Calculate balanced weights as baseline
+    balanced_weights = compute_class_weight("balanced", classes=classes, y=y)
 
-                # Call the original evaluate_candidates function
-                return evaluate_candidates(candidate_params)
+    # Create custom weights dictionary
+    class_weights = {}
 
-            # Store training data for progress tracking
-            self.X_train_ = None
-            self.y_train_ = None
+    for i, cls in enumerate(classes):
+        if cls == "Normal":
+            # Lower weight for Normal class to reduce false negatives
+            class_weights[cls] = balanced_weights[i] * \
+                0.3  # Reduce Normal class weight
+        else:
+            # Higher weights for attack classes
+            class_weights[cls] = (
+                balanced_weights[i] * 2.0
+            )  # Increase attack class weights
 
-            return evaluate_candidates(candidate_params)
-
-    def fit(self, X, y=None, *, groups=None, **fit_params):
-        # Store training data
-        self.X_train_ = X
-        self.y_train_ = y
-        return super().fit(X, y, groups=groups, **fit_params)
+    print(f"Custom class weights: {class_weights}")
+    return class_weights
 
 
 def train_enhanced_model(X_train, y_train):
-    """Train model with GridSearchCV and progress bar"""
-    print("Training enhanced model with GridSearchCV...")
+    """Train model optimized for low false negatives"""
+    print("Training enhanced model optimized for low false negatives...")
 
-    # Create pipeline
-    pipeline = Pipeline([
-        ("var_thresh", VarianceThreshold(threshold=0.0)),
-        ("scaler", StandardScaler()),
-        ("feature_selection", SelectKBest(f_classif, k="all")),
-        ("clf", RandomForestClassifier(
-            random_state=42, class_weight="balanced", n_jobs=-1)),
-    ])
+    # Create custom class weights
+    custom_weights = create_custom_class_weights(y_train)
 
-    # Reduced parameter grid for faster training
+    # Create pipeline with SMOTE for oversampling minority classes
+    pipeline = ImbPipeline(
+        [
+            ("var_thresh", VarianceThreshold(threshold=0.0)),
+            ("scaler", StandardScaler()),
+            (
+                "smote",
+                SMOTE(random_state=42, k_neighbors=3),
+            ),  # Oversample minority classes
+            ("feature_selection", SelectKBest(f_classif, k="all")),
+            (
+                "clf",
+                RandomForestClassifier(
+                    random_state=42,
+                    class_weight=custom_weights,  # Use custom weights
+                    n_jobs=-1,
+                    # Parameters optimized for sensitivity
+                    n_estimators=300,  # More trees for better detection
+                    max_depth=None,  # Allow deeper trees
+                    min_samples_split=2,  # Lower threshold for splits
+                    min_samples_leaf=1,  # Allow smaller leaves
+                    max_features="sqrt",
+                ),
+            ),
+        ]
+    )
+
+    # Parameter grid optimized for recall/sensitivity
     param_grid = {
-        "feature_selection__k": [15, 20, "all"],
+        "feature_selection__k": [20, 25, "all"],
         "clf__n_estimators": [100, 200],
         "clf__max_depth": [10, 20],
         "clf__min_samples_split": [2, 5],
+        # "clf__min_samples_leaf": [2, 5],
         "clf__max_features": ["sqrt", "log2"],
+    }
+
+    param_grid = {
+        "feature_selection__k": [25],
+        "clf__n_estimators": [200],
+        "clf__max_depth": [20],
+        "clf__min_samples_split": [2],
+        # "clf__min_samples_leaf": [2, 5],
+        "clf__max_features": ["sqrt"],
     }
 
     # Use StratifiedKFold for cross-validation
     cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
 
-    # Create GridSearchCV with progress bar
+    # Custom scoring function that prioritizes recall
+    def custom_scorer(estimator, X, y):
+        from sklearn.metrics import fbeta_score
+
+        y_pred = estimator.predict(X)
+        # F2 score gives more weight to recall than precision
+        return fbeta_score(y, y_pred, beta=2, average="weighted")
+
+    # Create GridSearchCV
     grid_search = GridSearchCV(
         pipeline,
         param_grid,
         cv=cv,
-        scoring="f1_macro",
-        n_jobs=1,  # Keep at 1 to avoid conflicts with RandomForest n_jobs
-        verbose=1
+        scoring=custom_scorer,  # Use custom scorer that prioritizes recall
+        n_jobs=1,
+        verbose=1,
+        error_score="raise",
     )
 
-    # Wrap with tqdm for progress tracking
     start_time = pd.Timestamp.now()
-
-    # print(f"Testing {len(list(grid_search._get_param_iterator()))} parameter combinations...")
 
     # Fit the model
     grid_search.fit(X_train, y_train)
@@ -363,27 +394,145 @@ def train_enhanced_model(X_train, y_train):
     return grid_search.best_estimator_
 
 
-def evaluate_model(model, X_test, y_test, feature_names):
-    """Comprehensive model evaluation"""
+def find_optimal_threshold(model, X_val, y_val):
+    """Find optimal threshold to minimize false negatives"""
+    print("Finding optimal threshold for prediction...")
+
+    # Get prediction probabilities
+    if hasattr(model, "predict_proba"):
+        # For multiclass, we need to handle this differently
+        y_proba = model.predict_proba(X_val)
+
+        # Convert to binary problem: Normal vs Any Attack
+        y_binary = (y_val != "Normal").astype(int)
+
+        # Get probability of "any attack" (1 - prob of Normal)
+        if "Normal" in model.classes_:
+            normal_idx = list(model.classes_).index("Normal")
+            attack_proba = 1 - y_proba[:, normal_idx]
+        else:
+            attack_proba = np.sum(
+                y_proba[:, 1:], axis=1
+            )  # Sum all non-normal probabilities
+
+        # Find threshold that maximizes recall while maintaining reasonable precision
+        from sklearn.metrics import precision_recall_curve
+
+        precision, recall, thresholds = precision_recall_curve(
+            y_binary, attack_proba)
+
+        # Find threshold where recall is at least 0.95 (minimize false negatives)
+        high_recall_indices = recall >= 0.95
+        if np.any(high_recall_indices):
+            # Among high recall thresholds, pick the one with best precision
+            best_idx = np.argmax(precision[high_recall_indices])
+            optimal_threshold = thresholds[np.where(
+                high_recall_indices)[0][best_idx]]
+        else:
+            # If we can't achieve 95% recall, pick threshold with best F2 score
+            f2_scores = (5 * precision * recall) / \
+                (4 * precision + recall + 1e-8)
+            best_idx = np.argmax(f2_scores)
+            optimal_threshold = thresholds[best_idx]
+
+        print(f"Optimal threshold: {optimal_threshold:.4f}")
+        print(
+            f"At this threshold - Precision: {
+                precision[best_idx]:.4f}, Recall: {recall[best_idx]:.4f}"
+        )
+
+        return optimal_threshold
+    else:
+        return 0.5  # Default threshold
+
+
+class ThresholdClassifier:
+    """Wrapper class to apply custom threshold"""
+
+    def __init__(self, model, threshold=0.5):
+        self.model = model
+        self.threshold = threshold
+        self.classes_ = model.classes_
+
+    def predict(self, X):
+        if hasattr(self.model, "predict_proba"):
+            y_proba = self.model.predict_proba(X)
+
+            # Get probability of "any attack"
+            if "Normal" in self.classes_:
+                normal_idx = list(self.classes_).index("Normal")
+                attack_proba = 1 - y_proba[:, normal_idx]
+            else:
+                attack_proba = np.sum(y_proba[:, 1:], axis=1)
+
+            # Apply threshold
+            predictions = []
+            for i, prob in enumerate(attack_proba):
+                if prob >= self.threshold:
+                    # Predict the most likely attack class (excluding Normal)
+                    non_normal_probs = y_proba[i].copy()
+                    if "Normal" in self.classes_:
+                        non_normal_probs[normal_idx] = 0
+                    predicted_class = self.classes_[
+                        np.argmax(non_normal_probs)]
+                else:
+                    predicted_class = "Normal"
+                predictions.append(predicted_class)
+
+            return np.array(predictions)
+        else:
+            return self.model.predict(X)
+
+
+def evaluate_model_detailed(model, X_test, y_test, feature_names):
+    """Comprehensive model evaluation with focus on false negatives"""
     print("Evaluating model...")
 
-    # FIXED: Use the pipeline to transform the test data
     y_pred = model.predict(X_test)
 
     print("\nClassification Report:")
+    report = classification_report(y_test, y_pred, output_dict=True)
     print(classification_report(y_test, y_pred))
 
     print("\nConfusion Matrix:")
     cm = confusion_matrix(y_test, y_pred)
     print(cm)
 
+    # Calculate false negative rate for each class
+    print("\nFalse Negative Analysis:")
+    for i, class_name in enumerate(model.classes_):
+        if class_name != "Normal":
+            # True Positives + False Negatives = All actual instances of this class
+            actual_class_mask = y_test == class_name
+            if np.sum(actual_class_mask) > 0:
+                predicted_class_mask = y_pred == class_name
+                true_positives = np.sum(
+                    actual_class_mask & predicted_class_mask)
+                false_negatives = np.sum(
+                    actual_class_mask & ~predicted_class_mask)
+                fnr = false_negatives / (true_positives + false_negatives)
+                print(
+                    f"{class_name}: False Negative Rate = {
+                        fnr:.4f} ({false_negatives}/{true_positives + false_negatives})"
+                )
+
+    # Overall attack detection rate
+    y_test_binary = (y_test != "Normal").astype(int)
+    y_pred_binary = (y_pred != "Normal").astype(int)
+
+    from sklearn.metrics import classification_report as cr
+
+    print("\nBinary Classification (Normal vs Attack):")
+    print(cr(y_test_binary, y_pred_binary, target_names=["Normal", "Attack"]))
+
     # Feature importance (if available)
     if hasattr(model.named_steps["clf"], "feature_importances_"):
         # Get the selected feature names after feature selection
         if hasattr(model.named_steps["feature_selection"], "get_support"):
             feature_mask = model.named_steps["feature_selection"].get_support()
-            selected_feature_names = [feature_names[i] for i in range(
-                len(feature_names)) if feature_mask[i]]
+            selected_feature_names = [
+                feature_names[i] for i in range(len(feature_names)) if feature_mask[i]
+            ]
         else:
             selected_feature_names = feature_names
 
@@ -419,7 +568,9 @@ def preprocess_features(df):
 
 
 if __name__ == "__main__":
-    print("Starting enhanced network threat detection...")
+    print(
+        "Starting enhanced network threat detection (optimized for low false negatives)..."
+    )
 
     # Load and preprocess data
     df = load_and_preprocess_data("merged_train.csv")
@@ -441,28 +592,53 @@ if __name__ == "__main__":
     print(f"Final feature matrix shape: {X.shape}")
     print(f"Target distribution:\n{pd.Series(y).value_counts()}")
 
-    # Split the data
+    # Split the data - use stratification to maintain class balance
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y
     )
 
-    # Train model
-    best_model = train_enhanced_model(X_train, y_train)
+    # Further split training data to create validation set for threshold tuning
+    X_train_final, X_val, y_train_final, y_val = train_test_split(
+        X_train, y_train, test_size=0.2, random_state=42, stratify=y_train
+    )
 
-    # Evaluate model
-    y_pred = evaluate_model(best_model, X_test, y_test, feature_names)
+    # Train model
+    best_model = train_enhanced_model(X_train_final, y_train_final)
+
+    # Find optimal threshold using validation set
+    optimal_threshold = find_optimal_threshold(best_model, X_val, y_val)
+
+    # Create threshold-optimized classifier
+    threshold_model = ThresholdClassifier(best_model, optimal_threshold)
+
+    # Evaluate both models
+    print("\n" + "=" * 50)
+    print("EVALUATION WITH DEFAULT THRESHOLD:")
+    print("=" * 50)
+    y_pred_default = evaluate_model_detailed(
+        best_model, X_test, y_test, feature_names)
+
+    # print("\n" + "=" * 50)
+    # print("EVALUATION WITH OPTIMIZED THRESHOLD:")
+    # print("=" * 50)
+    # y_pred_optimized = evaluate_model_detailed(
+    #     threshold_model, X_test, y_test, feature_names
+    # )
 
     # Save model
     import pickle
 
-    # Save both the model and feature names for future use
+    # Save both models and metadata
     model_data = {
-        'model': best_model,
-        'feature_names': feature_names
+        "model": best_model,
+        "threshold_model": threshold_model,
+        "feature_names": feature_names,
+        "optimal_threshold": optimal_threshold,
     }
 
-    with open("enhanced_threat_detection_model.pkl", "wb") as f:
+    with open("enhanced_threat_detection_model_low_fn.pkl", "wb") as f:
         pickle.dump(model_data, f)
 
-    print("\nModel saved as 'enhanced_threat_detection_model.pkl'")
+    print(f"\nModels saved as 'enhanced_threat_detection_model_low_fn.pkl'")
     print("Enhanced threat detection training completed!")
+    print(f"Use optimal threshold: {optimal_threshold:.4f} for deployment")
