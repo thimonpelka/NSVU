@@ -11,6 +11,42 @@ from tqdm.auto import tqdm
 
 warnings.filterwarnings("ignore")
 
+class ThresholdClassifier:
+    """Wrapper class to apply custom threshold"""
+
+    def __init__(self, model, threshold=0.5):
+        self.model = model
+        self.threshold = threshold
+        self.classes_ = model.classes_
+
+    def predict(self, X):
+        if hasattr(self.model, "predict_proba"):
+            y_proba = self.model.predict_proba(X)
+
+            # Get probability of "any attack"
+            if "Normal" in self.classes_:
+                normal_idx = list(self.classes_).index("Normal")
+                attack_proba = 1 - y_proba[:, normal_idx]
+            else:
+                attack_proba = np.sum(y_proba[:, 1:], axis=1)
+
+            # Apply threshold
+            predictions = []
+            for i, prob in enumerate(attack_proba):
+                if prob >= self.threshold:
+                    # Predict the most likely attack class (excluding Normal)
+                    non_normal_probs = y_proba[i].copy()
+                    if "Normal" in self.classes_:
+                        non_normal_probs[normal_idx] = 0
+                    predicted_class = self.classes_[
+                        np.argmax(non_normal_probs)]
+                else:
+                    predicted_class = "Normal"
+                predictions.append(predicted_class)
+
+            return np.array(predictions)
+        else:
+            return self.model.predict(X)
 
 def is_private_ip(ip_str):
     """Check if IP is in private range"""

@@ -8,7 +8,7 @@ fi
 
 PCAP_FILE="$1"
 
-python -m pip install tqdm
+python -m pip install tqdm imblearn
 
 chmod +x go-flows
 # 1. Run go-flows to extract features from the PCAP file
