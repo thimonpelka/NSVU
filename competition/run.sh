@@ -16,4 +16,4 @@ chmod +x go-flows
 
 # 2. Run prediction script
 # python predict.py
-python predict_enhanced.py -m enhanced_threat_detection_model.pkl -i test.csv -o output.csv
+python predict_enhanced.py -m enhanced_threat_detection_model_low_fn.pkl -i test.csv -o output.csv
